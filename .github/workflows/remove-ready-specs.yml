@@ -64,16 +64,32 @@ jobs:
       # classic token of a machine user with write access to this repository,
       # is used only to create the removal commit, so that checks run on it.
       - name: Remove specs/ and post a notice
+        id: remove
         uses: actions/github-script@v9
         env:
           SPECS_REMOVAL_TOKEN: ${{ secrets.SPECS_REMOVAL_TOKEN }}
           SPECS_REMOVAL_SIGNOFF: ${{ vars.SPECS_REMOVAL_SIGNOFF }}
+          RECORD_PATH: ${{ runner.temp }}/specs-removal/removal.json
         with:
           script: |
             const { run } = require('./.github/scripts/remove_ready_specs.js');
+            const { shouldHandOver, recordFor, writeRecord } = require('./.github/scripts/archive_removed_specs.js');
             const token = process.env.SPECS_REMOVAL_TOKEN;
-            await run({
+            const result = await run({
               github, context, core,
               pusher: token ? getOctokit(token) : null,
               signoff: process.env.SPECS_REMOVAL_SIGNOFF,
             });
+            if (shouldHandOver(result)) {
+              await writeRecord(process.env.RECORD_PATH, recordFor('github', result));
+              core.setOutput('record', 'true');
+            }
+
+      # Identifiers and paths only, for archive-removed-specs.yml; no file content.
+      - name: Hand the removal over for archiving
+        if: steps.remove.outputs.record == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: specs-removal
+          path: ${{ runner.temp }}/specs-removal/removal.json
+          retention-days: 7

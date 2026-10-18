@@ -1,0 +1,100 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Copies the spec files that remove-ready-specs.yml took out of a pull request
+# to the artifact store, using the removal record that workflow uploads.
+#
+# Never checks out or executes pull request code: the record holds identifiers
+# and paths only and is validated as data, and the files are read through the
+# API from the parent of the removal commit. A failure is logged in this run
+# only and changes nothing on the pull request.
+
+name: Archive Removed Specs
+
+on:
+  workflow_run:
+    workflows: [Remove Ready Specs]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  find-record:
+    name: Look for a removal record
+    # workflow_run matches by workflow name, so a pull request can add a
+    # workflow with the same name. Only pull_request_target runs execute
+    # default-branch code, so only their records are trusted.
+    if: >-
+      github.repository == 'NVIDIA/TensorRT-LLM' &&
+      github.event.workflow_run.event == 'pull_request_target' &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      found: ${{ steps.record.outputs.found }}
+    steps:
+      # Most runs remove nothing and upload no record.
+      - name: List the triggering run's removal record
+        id: record
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { data } = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.payload.workflow_run.id,
+              name: 'specs-removal',
+            });
+            core.setOutput('found', String(data.total_count > 0));
+
+  archive-specs:
+    name: Archive specs/ removed from a pull request
+    needs: find-record
+    if: needs.find-record.outputs.found == 'true'
+    # The artifact store resolves only to addresses inside NVIDIA's network.
+    # Other CI work shares this runner, so a job is queued on it only when
+    # there is a record to archive.
+    runs-on: linux-amd64-cpu4
+    timeout-minutes: 10
+    steps:
+      - name: Download the removal record
+        uses: actions/download-artifact@v8
+        with:
+          name: specs-removal
+          path: ${{ runner.temp }}/specs-removal
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # The default ref of workflow_run is the default branch.
+      - name: Checkout the default branch (scripts only)
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github/scripts
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Archive the removed files
+        uses: actions/github-script@v8
+        env:
+          ARCHIVE_BASE_URL: https://artifactory.nvidia.com/artifactory/sw-tensorrt-llm-generic-local
+          ARCHIVE_USER: ${{ vars.AWS_ARTIFACTORY_USER }}
+          ARCHIVE_TOKEN: ${{ secrets.AWS_ARTIFACTORY_TOKEN }}
+          RECORD_PATH: ${{ runner.temp }}/specs-removal/removal.json
+        with:
+          script: |
+            const { run } = require('./.github/scripts/archive_removed_specs.js');
+            await run({ github, core });
