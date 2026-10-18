@@ -143,6 +143,7 @@ Key files:
 - **Copyright year** — update to current year when modifying existing files; add full header to new files.
 - **Avoid broad exception handling** — catch specific exceptions, not bare `except:` (see `CODING_GUIDELINES.md`).
 - **One concern per PR** — avoid scope creep. If a PR touches unrelated areas, split it.
+- **CI removes `specs/` from ready PRs** — the root `specs/` folder holds design documents for draft-stage review only. When a PR becomes ready for review, CI removes the folder from its branch in a commit of its own (`.github/workflows/remove-ready-specs.yml`) and comments on the PR. Follow that comment's steps before pulling, so your local copy survives.
 - **User-facing configuration classes** - when editing or defining any user-facing configuration classes (particularly `BaseLlmArgs` or any class used in its fields), you **MUST** follow the Pydantic guidelines in `CODING_GUIDELINES.md`.
 
 ## Development Workflow
