@@ -1,3 +1,0 @@
-# Rehearsal plan
-
-Test content.

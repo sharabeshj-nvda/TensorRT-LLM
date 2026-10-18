@@ -1,3 +1,0 @@
-# Rehearsal contract
-
-Test content.
